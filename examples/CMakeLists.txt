@@ -4,6 +4,11 @@
 ##    in the file "license.txt" in the top-level Albany directory  //
 ##*****************************************************************//
 
+include(ExternalData)
+set(ExternalData_URL_TEMPLATES
+  "https://sourceforge.net/projects/albany/files/%(algo)/%(hash)"
+  )
+
 # Setup paths for SEACAS tools needed to run some of the tests
 IF (ALBANY_SEACAS)
   IF(DEFINED ALBANY_SEACAS_PATH)
