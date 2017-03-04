@@ -39,6 +39,36 @@
 #include <stk_adapt/UniformRefinerPattern.hpp>
 #endif
 
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+
+static bool ends_with(std::string const& a, std::string const& b) {
+  if (a.length() < b.length()) return false;
+  return 0 == a.compare(a.length() - b.length(), b.length(), b);
+}
+
+class MaybeCompressedStream {
+ public:
+  using Pipeline = boost::iostreams::filtering_stream<boost::iostreams::input>;
+  MaybeCompressedStream(std::string const& filepath):
+      file(filepath.c_str(), std::ios_base::in) {
+    ALBANY_ASSERT(file.is_open(), "couldn't open file " << filepath);
+    is_compressed = ends_with(filepath, ".gz");
+    if (is_compressed) {
+      pipeline.push(boost::iostreams::gzip_decompressor());
+      pipeline.push(file);
+    }
+  }
+  std::istream& stream() {
+    if (is_compressed) return pipeline;
+    else return file;
+  }
+ private:
+  std::ifstream file;
+  Pipeline pipeline;
+  bool is_compressed;
+};
+
 static void
 printCTD(const CellTopologyData & t )
 {
@@ -1411,9 +1441,8 @@ void Albany::GenericSTKMeshStruct::readScalarFileSerial (const std::string& fnam
   GO numNodes;
   Teuchos::ArrayRCP<ST> nonConstView = mvec->get1dViewNonConst();
 
-  std::ifstream ifile;
-  ifile.open(fname.c_str());
-  TEUCHOS_TEST_FOR_EXCEPTION (!ifile.is_open(), std::runtime_error, "Error in GenericSTKMeshStruct: unable to open the file " << fname << ".\n");
+  MaybeCompressedStream mcs(fname);
+  auto& ifile = mcs.stream();
 
   ifile >> numNodes;
   TEUCHOS_TEST_FOR_EXCEPTION (numNodes != map->getNodeNumElements(), Teuchos::Exceptions::InvalidParameterValue,
@@ -1422,8 +1451,6 @@ void Albany::GenericSTKMeshStruct::readScalarFileSerial (const std::string& fnam
 
   for (GO i = 0; i < numNodes; i++)
     ifile >> nonConstView[i];
-
-  ifile.close();
 }
 
 void Albany::GenericSTKMeshStruct::readVectorFileSerial (const std::string& fname, Teuchos::RCP<Tpetra_MultiVector>& mvec,
@@ -1434,9 +1461,8 @@ void Albany::GenericSTKMeshStruct::readVectorFileSerial (const std::string& fnam
   if (comm->getRank() == 0)
   {
     GO numNodes;
-    std::ifstream ifile;
-    ifile.open(fname.c_str());
-    TEUCHOS_TEST_FOR_EXCEPTION (!ifile.is_open(), std::runtime_error, "Error in GenericSTKMeshStruct: unable to open the file " << fname << ".\n");
+    MaybeCompressedStream mcs(fname);
+    auto& ifile = mcs.stream();
 
     ifile >> numNodes >> numComponents;
 
@@ -1452,7 +1478,6 @@ void Albany::GenericSTKMeshStruct::readVectorFileSerial (const std::string& fnam
       for (GO i = 0; i < numNodes; i++)
         ifile >> nonConstView[i];
     }
-    ifile.close();
   }
 
   Teuchos::broadcast(*comm,0,1,&numComponents);
@@ -1469,10 +1494,8 @@ void Albany::GenericSTKMeshStruct::readLayeredScalarFileSerial (const std::strin
   if (comm->getRank() == 0)
   {
     GO numNodes;
-    std::ifstream ifile;
-
-    ifile.open(fname.c_str());
-    TEUCHOS_TEST_FOR_EXCEPTION (!ifile.is_open(), std::runtime_error, "Error in GenericSTKMeshStruct: unable to open the file " << fname << ".\n");
+    MaybeCompressedStream mcs(fname);
+    auto& ifile = mcs.stream();
 
     ifile >> numNodes >> numLayers;
 
@@ -1495,7 +1518,6 @@ void Albany::GenericSTKMeshStruct::readLayeredScalarFileSerial (const std::strin
       for (GO i = 0; i < numNodes; i++)
         ifile >> nonConstView[i];
     }
-    ifile.close();
   }
 
   Teuchos::broadcast(*comm,0,1,&numLayers);
@@ -1513,10 +1535,8 @@ void Albany::GenericSTKMeshStruct::readLayeredVectorFileSerial (const std::strin
   {
     GO numNodes;
     int numLayers,numComponents;
-    std::ifstream ifile;
-
-    ifile.open(fname.c_str());
-    TEUCHOS_TEST_FOR_EXCEPTION (!ifile.is_open(), std::runtime_error, "Error in GenericSTKMeshStruct: unable to open the file " << fname << ".\n");
+    MaybeCompressedStream mcs(fname);
+    auto& ifile = mcs.stream();
 
     ifile >> numNodes >> numComponents >> numLayers;
 
@@ -1544,7 +1564,6 @@ void Albany::GenericSTKMeshStruct::readLayeredVectorFileSerial (const std::strin
           ifile >> nonConstView[i];
       }
     }
-    ifile.close();
   }
 
   Teuchos::broadcast(*comm,0,1,&numVectors);
